@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nba-trivia"
+version = "0.1.0"
+description = "Historical NBA roster pipeline and trivia framework"
+requires-python = ">=3.10"
+dependencies = ["certifi>=2024.2.2"]
+
+[project.scripts]
+nba-trivia = "nba_trivia.cli:main"
+
+[project.gui-scripts]
+nba-trivia-desktop = "nba_trivia.gui:main"
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6"]
+
+[tool.setuptools.packages.find]
+include = ["nba_trivia*"]
