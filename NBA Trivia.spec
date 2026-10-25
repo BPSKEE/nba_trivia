@@ -5,7 +5,7 @@ a = Analysis(
     ['run_desktop.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('/Users/brandonskeens/B_Ball_Triv/build/bundled_data/rosters.csv', 'data')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

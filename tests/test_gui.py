@@ -11,3 +11,48 @@ class RangeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 select_range([row], start, end)
         self.assertEqual(select_range([row, replace(row, season_end=1977)],1976,1977)[1].season_end,1977)
+
+class BundledDataTests(unittest.TestCase):
+    def test_packaged_csv_is_preferred(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from nba_trivia.gui import default_roster_path
+        with tempfile.TemporaryDirectory() as folder:
+            csv_path = Path(folder) / 'data/rosters.csv'
+            csv_path.parent.mkdir()
+            csv_path.write_text('bundled test')
+            with patch('sys.frozen', True, create=True), patch('sys._MEIPASS', folder, create=True):
+                self.assertEqual(default_roster_path(), csv_path)
+                csv_path.unlink()
+                self.assertNotEqual(default_roster_path(), csv_path)
+
+class RosterTableTests(unittest.TestCase):
+    def test_hints_and_red_reveal_preserve_correct_answers(self):
+        from unittest.mock import Mock
+        from nba_trivia.gui import TriviaApp
+        from nba_trivia.modes import make_session
+        rows = [PlayerSeason(2024,'2023-24','NBA','BOS','Boston Celtics',str(i),f'Player {i}',
+                             position='PG',games=20,minutes_total=300,ppg=20-i,
+                             height_inches=75,jersey_number=str(i)) for i in range(2)]
+        app = object.__new__(TriviaApp)
+        app.session = make_session(rows,'one-player')
+        app.table = Mock()
+        app.table.get_children.return_value = []
+        app.progress = Mock()
+        app.refresh_table()
+        values = app.table.insert.call_args_list[0].kwargs['values']
+        self.assertEqual(values[0], '________________')
+        self.assertEqual(values[4:], ('Hidden','Hidden','Hidden'))
+        app.session.hints = ['ppg']
+        app.session.hint()
+        app.table.reset_mock()
+        app.refresh_table()
+        self.assertEqual(app.table.insert.call_args_list[0].kwargs['values'][-1], '20')
+        app.session.guess('Player 0')
+        app.session.quit()
+        app.table.reset_mock()
+        app.refresh_table(reveal=True)
+        calls = app.table.insert.call_args_list
+        self.assertEqual(calls[0].kwargs['tags'], ())
+        self.assertEqual(calls[1].kwargs['tags'], ('revealed',))
