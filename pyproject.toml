@@ -7,13 +7,13 @@ name = "nba-trivia"
 version = "0.1.0"
 description = "Historical NBA roster pipeline and trivia framework"
 requires-python = ">=3.10"
-dependencies = ["certifi>=2024.2.2"]
+dependencies = ["certifi>=2024.2.2", "PySide6-Essentials>=6.8,<7"]
 
 [project.scripts]
 nba-trivia = "nba_trivia.cli:main"
 
 [project.gui-scripts]
-nba-trivia-desktop = "nba_trivia.gui:main"
+nba-trivia-desktop = "nba_trivia.qt_gui:main"
 
 [project.optional-dependencies]
 build = ["pyinstaller>=6"]

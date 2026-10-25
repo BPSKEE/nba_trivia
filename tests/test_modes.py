@@ -48,7 +48,7 @@ class SessionTests(unittest.TestCase):
         s = make_session(rows, 'one-player', 'BOS', rng=random.Random(7))
         self.assertEqual([r.player_id for r in s.answers], [f'p{i}' for i in reversed(range(10))])
         self.assertEqual(len(s.traded[('p0', 2024)]), 2)
-        self.assertEqual({s.hint(), s.hint(), s.hint()}, {'height_inches', 'jersey_number', 'ppg'})
+        self.assertEqual(set(s.hint()), {'height_inches', 'jersey_number', 'ppg', 'college', 'age'})
         self.assertIsNone(s.hint())
         self.assertIn('250-minute', s.guess('Player 11'))
         s.guess('player 0')
@@ -139,8 +139,17 @@ class MacModeRulesTests(unittest.TestCase):
         self.assertEqual(session.guess('SEA').split('Incorrect')[0].strip(),
                          'Player 0 did not play for SEA in 2024.')
 
-    def test_only_two_modes(self):
+    def test_four_modes(self):
         from nba_trivia.modes import MODE_NAMES
-        self.assertEqual(set(MODE_NAMES.values()), {'one-player','player-teams'})
+        self.assertEqual(set(MODE_NAMES.values()), {'one-player','player-teams','college','all-stars'})
         with self.assertRaises(ValueError):
             make_session(roster(), 'top-ten')
+
+class CombinedHintTests(unittest.TestCase):
+    def test_single_click_reveals_all_five_and_cannot_repeat(self):
+        s = make_session(roster(),'one-player')
+        self.assertEqual(set(s.hint()), {'jersey_number','height_inches','ppg','college','age'})
+        self.assertEqual(set(s.revealed_hints), set(s.hint_fields))
+        self.assertEqual(s.hints, [])
+        self.assertIsNone(s.hint())
+        self.assertEqual(s.found, set())

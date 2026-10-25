@@ -90,7 +90,7 @@ The desktop app only reads roster files. Use **Choose CSV…** or **Reload data*
 
 ### Mac game modes
 
-- **Complete the roster:** identify every player with at least 250 minutes for the selected team-season. Blank names are ordered by PPG descending (unknown PPG last). Position, games, and inferred traded status are shown initially. Each hint reveals all heights, jersey numbers, or PPG in random order without repeats. Correct guesses reveal that player's data. Unlimited guesses; incorrect input stays entered. This replaces the separate top-ten mode.
+- **Complete the roster:** identify every player with at least 250 minutes for the selected team-season. Blank names are ordered by PPG descending (unknown PPG last). Position, games, and inferred traded status are shown initially. One **Reveal all hints** button reveals every player’s jersey number, height, PPG, college, and age together; it then disables. Names remain hidden until guessed. Correct guesses reveal that player's data. Unlimited guesses; incorrect input stays entered. This replaces the separate top-ten mode.
 - **Find the teams:** identify one or all teams for a player-season selected from the menu's range. Eligible players must have at least **250 combined season minutes** and **15 MPG**, calculated as combined team minutes divided by combined team games. Every played stint needs known minutes and games. All played teams remain valid answers, including short stints below the season eligibility threshold. Selecting a specific menu team restricts the player pool without removing their other answers.
 
 Find-the-teams uses a button grid, with one button per historical NBA team in the loaded CSV for that exact season. It shows season-correct names and includes defunct or renamed teams where present in the data. It does not use today's team list. Click a team to submit; correct choices are marked and disabled, wrong choices are marked and disabled, and five wrong selections end the game. There is no text box in this mode. Unknown teams cannot be invented if the CSV's season coverage is incomplete.
@@ -107,7 +107,7 @@ After the scraper finishes and `data/rosters.csv` exists, run:
 make
 ```
 
-This validates the CSV, takes a build-only snapshot, and embeds it inside the application. The original CSV and running scraper are never changed. The packaged app automatically uses its bundled CSV, so the recipient needs no separate dataset or Python installation. Rebuild to ship updated roster data.
+This validates the CSV, takes a build-only snapshot, and embeds it inside the application. Builds prefer `data/rosters_enriched.csv` when present, otherwise `data/rosters.csv`. The original CSV and running scraper are never changed. The packaged app automatically uses its bundled CSV, so the recipient needs no separate dataset or Python installation. Rebuild to ship updated roster data.
 
 On macOS, the build creates `dist/NBA Trivia.app` and **`dist/NBA Trivia.zip`**. Send only the ZIP. The recipient extracts it and double-clicks the app. The app is a Finder package containing its dependencies and CSV. It is not Developer ID signed or notarized, so macOS may show a security warning. The current build targets Apple Silicon Macs.
 
@@ -165,20 +165,65 @@ In **Complete the roster**, start typing a first or last name to open a scrollab
 
 Keyboard: Down opens/focuses suggestions; arrow keys navigate; Return selects a highlighted suggestion; Escape dismisses the list. Team-button mode is unchanged. The separate iPhone version has not received this Mac-only feature.
 
-### Optional roster metadata: age, All-Star status, college
+### Roster metadata and All-Star markers
 
-New scraper output appends `age`, `is_all_star`, and `college`. Old CSVs remain readable: their missing fields default to unknown. The Mac roster source code adds these as randomized hint categories only when the chosen roster has data for them, and displays the fields on correctly guessed or revealed rows. A horizontal table scrollbar accommodates the extra columns. The existing packaged app must be rebuilt separately to include these source changes.
+The enriched dataset adds `age`, `is_all_star`, and `college`. Mac roster mode has one **Reveal all hints** button: one click reveals jersey numbers, heights, PPG, colleges, and ages for all rows. Unknown values show a dash. Correct guesses still reveal the matching player's fields. Names stay hidden until guessed or the game ends.
 
-- `age`: the source's season-age value from the regular-season statistics tables. Basketball Reference defines it as age on January 31 of that season; it is not current age.
-- `is_all_star`: `1` when the Awards column contains the exact `AS` marker, `0` when Awards is available without that marker, and blank when unavailable. It means selected for that season's All-Star roster, not necessarily that the player appeared in the game. Selection is reconciled across a traded player's team rows. A season without an All-Star selection is not a positive result.
-- `college`: the roster's listed college text, preserving multiple schools. Blank means no listed college/unknown; it is not automatically interpreted as proof the player never attended college.
+A small gold star image at the left of a row and a light-gold row background indicate All-Star selection in that season. This marker is visible from the start; a legend below the game explains it. Quit/failure still show unguessed names in red, including on gold All-Star rows.
 
-Sources: [Basketball Reference glossary](https://www.basketball-reference.com/about/glossary.html), [Sports Reference All-Star help](https://faq.sports-reference.com/portal/en/kb/articles/all-sta), and the team-season roster/statistics pages linked in each row.
+- `age`: Basketball Reference's season-age value (age on January 31), not current age.
+- `is_all_star`: `1` for the exact `AS` Awards marker, `0` when the Awards field exists without `AS`, and blank when unknown. Selection is reconciled across traded players' team rows. This indicates selection, not necessarily game participation.
+- `college`: source roster text, preserving multiple schools. Blank means no listed college/unknown.
 
-To generate a **separate** enriched file later, keeping the current dataset in place:
+Sources: [Basketball Reference glossary](https://www.basketball-reference.com/about/glossary.html) and [Sports Reference All-Star help](https://faq.sports-reference.com/portal/en/kb/articles/all-sta).
+
+`data/rosters.csv` remains the original protected dataset. To reparse the existing cached pages into a **separate** enriched dataset without network requests:
 
 ```sh
-python3 -m nba_trivia scrape --start 1976 --end 2026 --data data/rosters_enriched.csv
+.venv/bin/python enrich_rosters.py
 ```
 
-Existing cached pages are reused. This command has not been run as part of the metadata update; `data/rosters.csv` has not been replaced, and the app has not been rebuilt. Preview the enriched file using the source app's CSV picker before choosing to bundle it in a future release.
+This writes `data/rosters_enriched.csv` and refuses to overwrite the original `rosters.csv`. Missing cached pages cause it to stop instead of requesting the network. Both source launches and `make` prefer the enriched CSV when available. The app still bundles it under the internal name `rosters.csv` so recipients do not need a separate file. To explicitly build with another dataset, use `.venv/bin/python build_app.py --data /path/to/rosters.csv`.
+
+When cached pages are missing, the existing network scraper can produce a separate enriched file with `python3 -m nba_trivia scrape --start 1976 --end 2026 --data data/rosters_enriched.csv`.
+
+### Guess the college (Mac)
+
+Select **Guess the college**, choose an inclusive range of season-ending years, and optionally select a team. The game picks a player who actually played in a selected season and has a listed college in the enriched CSV. Players without recorded colleges are excluded; this mode has fixed minimums of **25 career MPG and 2,000 career minutes**, with no menu toggle. Career MPG is total regular-season minutes divided by total regular-season games across all loaded seasons and team stints—not an average of season MPG, and not limited to the menu's year range or team. The chosen years only control which players were active. Careers with missing minutes/games are excluded. Players present in the dataset's first covered season are conservatively excluded because earlier career history cannot be verified; with the current dataset this affects players already present in 1975–76, including rookies from that season. Active players use career-to-date totals through the dataset's final season.
+
+Type a college name to open autocomplete suggestions, click a school to fill it, then submit. Suggestions search all college names in the dataset, so they do not reveal only valid answers. Matching ignores case and accents. For players with multiple listed colleges, any one of their schools is accepted. Guesses are unlimited. A correct guess shows victory; **Quit & reveal answers** shows listed colleges in red. Both provide **Return to menu**. This mode is Mac-only for now.
+
+### Mac click handling
+
+Buttons explicitly handle mouse press/release and keyboard activation, firing once on release inside the button. Dragging outside cancels; disabled controls ignore clicks. Return on a focused button does not also trigger the game's root-level Submit binding.
+
+Selecting a game mode or completion goal updates existing controls rather than destroying/rebuilding the menu. Autocomplete reserves a fixed-height suggestion area, so focus changes cannot collapse the list and move Hint, Quit, or Submit during a click. These behaviors have regression tests; physical Mac input still requires device verification.
+
+### East / West All-Stars (Mac)
+
+Select **East / West All-Stars**, choose an inclusive year range, and start. Set both year fields to the same year for a specific game. The mode picks a supported year in that range; regular-season team selection and the other modes' minutes requirements do not apply.
+
+Two tables appear side-by-side, East on the left and West on the right. Type a player's name with the shared autocomplete, then submit. Correct guesses reveal that player's row in the correct conference. Both rosters must be completed to win. Guesses are unlimited; duplicate answers do not count. Quit reveals remaining names in red and provides Return to menu.
+
+The separate `data/allstars.csv` uses actual conference rosters from [Basketball Reference's All-Star game pages](https://www.basketball-reference.com/allstar/). It includes game-roster players plus selected players identified in injury/withdrawal notes, so replacement players and the selections they replaced can both be answers. It does not infer conferences from end-of-season NBA rosters.
+
+Supported East/West game years are **1976–2017 except 1999, plus 2024**. Years with other game formats or no game are excluded. A range containing no supported year produces a message instead of inventing East/West teams. The [All-Star history index](https://www.basketball-reference.com/allstar/) records the game formats.
+
+To regenerate this dataset independently:
+
+```sh
+.venv/bin/python collect_allstars.py
+make
+```
+
+Collection uses the same polite request interval and page cache as the main scraper, writes the All-Star file atomically after success, and leaves both regular-season CSVs untouched. `make` includes `allstars.csv` in the app when present. No network access is needed while playing.
+
+## Current Mac frontend: Qt
+
+The packaged app and `run_desktop.py` now launch the Qt frontend (`nba_trivia/qt_gui.py`). Standard Qt buttons, radio controls, searchable team selection, and popup autocomplete replace the Tk controls and custom mouse handlers. Menu widgets persist when selections change, and autocomplete does not resize the page. All four modes, career eligibility rules, one-click roster hints, All-Star gold markers, and red answer reveals are retained. The legacy Tk module is kept for compatibility tests but is not the packaged frontend.
+
+East/West All-Star tables now show **Player / NBA team(s) / Age / College**. Metadata is joined by player ID and exact season from the enriched CSV, and is visible while names are hidden. Traded players list every recorded team for that season. Long text wraps, columns fit each table's width, and scrolling is vertical only. Unknown metadata is a dash.
+
+Install the updated runtime/build dependencies before building: `.venv/bin/python -m pip install -e '.[build]'`, then `make`. Qt is bundled in the app; recipients do not install it. The current Qt wheel requires macOS 14 or newer; this build targets Apple Silicon.
+
+UI tests exercise actual Qt widgets using Qt Test's offscreen mouse/keyboard events: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -v`. This verifies event handling and layout without controlling the user's desktop; it does not replace physical-device testing.

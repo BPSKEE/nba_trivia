@@ -43,12 +43,12 @@ class RosterTableTests(unittest.TestCase):
         app.refresh_table()
         values = app.table.insert.call_args_list[0].kwargs['values']
         self.assertEqual(values[0], '________________')
-        self.assertEqual(values[4:], ('Hidden','Hidden','Hidden'))
+        self.assertEqual(values[4:], ('Hidden',)*5)
         app.session.hints = ['ppg']
         app.session.hint()
         app.table.reset_mock()
         app.refresh_table()
-        self.assertEqual(app.table.insert.call_args_list[0].kwargs['values'][-1], '20')
+        self.assertEqual(app.table.insert.call_args_list[0].kwargs['values'][6], '20')
         app.session.guess('Player 0')
         app.session.quit()
         app.table.reset_mock()
@@ -56,3 +56,33 @@ class RosterTableTests(unittest.TestCase):
         calls = app.table.insert.call_args_list
         self.assertEqual(calls[0].kwargs['tags'], ())
         self.assertEqual(calls[1].kwargs['tags'], ('revealed',))
+
+class AllStarRowTests(unittest.TestCase):
+    def test_star_image_gold_tag_and_red_reveal_coexist(self):
+        from unittest.mock import Mock
+        from nba_trivia.gui import TriviaApp
+        from nba_trivia.modes import make_session
+        star = PlayerSeason(2024,'2023-24','NBA','BOS','Boston','a','Star Player',games=20,
+                            minutes_total=300,ppg=20,is_all_star=1,age=25,college='Duke')
+        other = replace(star,player_id='b',player_name='Other',ppg=10,is_all_star=0)
+        app = object.__new__(TriviaApp)
+        app.session = make_session([star,other],'one-player')
+        app.table = Mock()
+        app.table.get_children.return_value = []
+        app.progress = Mock()
+        app.star_icon = 'star-image'
+        app.refresh_table()
+        calls = app.table.insert.call_args_list
+        self.assertEqual(calls[0].kwargs['tags'], ('all_star',))
+        self.assertEqual(calls[0].kwargs['image'], 'star-image')
+        self.assertEqual(calls[1].kwargs['image'], '')
+        app.session.hint()
+        app.table.reset_mock()
+        app.refresh_table()
+        values=app.table.insert.call_args_list[0].kwargs['values']
+        self.assertEqual(values[-3:], ('20','Duke','25'))
+        self.assertEqual(values[0], '________________')
+        app.session.quit()
+        app.table.reset_mock()
+        app.refresh_table(reveal=True)
+        self.assertEqual(app.table.insert.call_args_list[0].kwargs['tags'], ('revealed','all_star'))

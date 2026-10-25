@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--data', type=Path, default=ROOT / 'data/rosters.csv')
+    preferred = ROOT / 'data/rosters_enriched.csv'
+    parser.add_argument('--data', type=Path, default=preferred if preferred.is_file() else ROOT / 'data/rosters.csv')
     args = parser.parse_args()
     if not args.data.is_file():
         parser.exit(1, 'Roster CSV is not ready. Let the scraper finish, then run make again. '
@@ -28,6 +29,9 @@ def main():
                '--onefile' if sys.platform == 'win32' else '--onedir',
                '--name', 'NBA Trivia', '--add-data', f'{snapshot}{separator}data',
                'run_desktop.py']
+    allstars = ROOT / 'data/allstars.csv'
+    if allstars.is_file():
+        command.extend(['--add-data', f'{allstars}{separator}data'])
     subprocess.run(command, cwd=ROOT, check=True)
     if sys.platform == 'darwin':
         output = ROOT / 'dist/NBA Trivia.zip'

@@ -3,50 +3,18 @@ import os
 import queue
 import sys
 import threading
+import math
 from datetime import date
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+from .allstars import read_allstars, make_allstar_session
 from .autocomplete import NameIndex
 from .data import read_csv
-from .modes import MODE_NAMES, make_session
+from .modes import MODE_NAMES, make_session, college_names
 
-MIN_YEAR = 1976
-
-
-def latest_season():
-    today = date.today()
-    return today.year if today.month >= 7 else today.year - 1
-
-
-def default_data_dir():
-    if not getattr(sys, "frozen", False):
-        return Path(__file__).resolve().parent.parent / "data"
-    if sys.platform == "darwin":
-        return Path.home() / "Library/Application Support/NBA Trivia"
-    if sys.platform == "win32":
-        return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "NBA Trivia"
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "nba-trivia"
-
-
-def default_roster_path():
-    # A packaged release always prefers the dataset shipped with that release.
-    if getattr(sys, "frozen", False):
-        bundled = Path(sys._MEIPASS) / "data" / "rosters.csv"
-        if bundled.is_file():
-            return bundled
-    return default_data_dir() / "rosters.csv"
-
-
-def select_range(rows, start, end):
-    if not MIN_YEAR <= start <= end <= latest_season():
-        raise ValueError(f"Choose ending years from {MIN_YEAR} to {latest_season()}, with start ≤ finish.")
-    selected = [r for r in rows if start <= r.season_end <= end and r.league == "NBA"]
-    missing = sorted(set(range(start, end + 1)) - {r.season_end for r in selected})
-    if missing:
-        raise ValueError("CSV has no NBA records for: " + ", ".join(map(str, missing)) + ". Choose a covered range or load another CSV.")
-    return selected
+from .paths import MIN_YEAR, latest_season, default_data_dir, default_roster_path, allstars_path, select_range
 
 
 BG = "#f5f2e9"
@@ -55,6 +23,24 @@ INK = "#18312b"
 GREEN = "#173e32"
 RUST = "#9b4c2e"
 RED = "#b42318"
+
+
+def make_star_icon(master):
+    """Small original raster star for the row icon and legend."""
+    icon = tk.PhotoImage(master=master, width=20, height=20)
+    points = [(10 + (9 if i % 2 == 0 else 4) * math.cos(-math.pi/2 + i*math.pi/5),
+               10 + (9 if i % 2 == 0 else 4) * math.sin(-math.pi/2 + i*math.pi/5))
+              for i in range(10)]
+    for y in range(20):
+        for x in range(20):
+            inside = False
+            for i, (ax, ay) in enumerate(points):
+                bx, by = points[(i+1) % 10]
+                if (ay > y+0.5) != (by > y+0.5) and x+0.5 < (bx-ax)*(y+0.5-ay)/(by-ay)+ax:
+                    inside = not inside
+            if inside:
+                icon.put("#ad7809", (x, y))
+    return icon
 
 
 class CourtButton(ttk.Button):
@@ -70,6 +56,53 @@ class CourtButton(ttk.Button):
                              borderwidth=0, relief="flat", anchor="center", padding=tuple(self.padding))
         super().__init__(parent, text=text, command=command, style=self.theme_name, cursor="hand2")
         self.configure(**kwargs)
+        self._mouse_armed = False
+        self._space_armed = False
+        self.bind("<ButtonPress-1>", self.mouse_press)
+        self.bind("<ButtonRelease-1>", self.mouse_release)
+        self.bind("<KeyPress-space>", self.space_press)
+        self.bind("<KeyRelease-space>", self.space_release)
+        self.bind("<Return>", self.return_press)
+
+    def mouse_press(self, event):
+        self._mouse_armed = not self.instate(("disabled",))
+        if self._mouse_armed:
+            self.focus_set()
+            self.state(("pressed",))
+        return "break"
+
+    def mouse_release(self, event):
+        activate = (self._mouse_armed and not self.instate(("disabled",))
+                    and 0 <= event.x < self.winfo_width()
+                    and 0 <= event.y < self.winfo_height())
+        self._mouse_armed = False
+        self.state(("!pressed",))
+        if activate:
+            self.invoke()
+        return "break"
+
+    def space_press(self, event=None):
+        self._space_armed = not self.instate(("disabled",))
+        if self._space_armed:
+            self.state(("pressed",))
+        return "break"
+
+    def space_release(self, event=None):
+        activate = self._space_armed and not self.instate(("disabled",))
+        self._space_armed = False
+        self.state(("!pressed",))
+        if activate:
+            self.invoke()
+        return "break"
+
+    def return_press(self, event=None):
+        if not self.instate(("disabled",)):
+            self.invoke()
+        return "break"
+
+    def set_primary(self, selected):
+        self.configure(background=GREEN if selected else "#e3e8db",
+                       foreground=PAPER if selected else INK)
 
     def configure(self, cnf=None, **kwargs):
         if cnf is not None:
@@ -101,15 +134,22 @@ class AutocompleteEntry(ttk.Frame):
         self.accepting = False
         self.entry = ttk.Entry(self, textvariable=variable, font=("Helvetica", 16))
         self.entry.pack(fill="x")
-        self.dropdown = ttk.Frame(self)
+        # Reserve suggestion space so focusing another control cannot move it
+        # between ButtonPress and ButtonRelease.
+        self.dropdown = ttk.Frame(self, height=150)
+        self.dropdown.pack_propagate(False)
+        self.dropdown.pack(fill="x", pady=(2, 0))
         self.listbox = tk.Listbox(self.dropdown, height=6, font=("Helvetica", 14),
                                  background=PAPER, foreground=INK, selectbackground=GREEN,
                                  selectforeground=PAPER, activestyle="none", exportselection=False,
                                  borderwidth=0, highlightthickness=1, highlightbackground="#b8c5af")
         scroll = ttk.Scrollbar(self.dropdown, orient="vertical", command=self.listbox.yview)
+        self.suggestion_scroll = scroll
         self.listbox.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.listbox.pack(side="left", fill="both", expand=True)
+        self.placeholder = ttk.Label(self.dropdown, text="Type to see name suggestions.", style="Muted.TLabel")
+        self.hide()
         self.trace = variable.trace_add("write", self.changed)
         self.entry.bind("<Down>", self.navigate)
         self.entry.bind("<Escape>", self.dismiss)
@@ -129,13 +169,17 @@ class AutocompleteEntry(ttk.Frame):
         for name in matches:
             self.listbox.insert("end", name)
         if matches:
-            self.listbox.configure(height=min(6, len(matches)))
-            self.dropdown.pack(fill="x", pady=(2, 0))
+            self.placeholder.pack_forget()
+            self.listbox.configure(height=6)
+            self.suggestion_scroll.pack(side="right", fill="y")
+            self.listbox.pack(side="left", fill="both", expand=True)
         else:
             self.hide()
 
     def hide(self):
-        self.dropdown.pack_forget()
+        self.listbox.pack_forget()
+        self.suggestion_scroll.pack_forget()
+        self.placeholder.pack(anchor="w", pady=8)
         self.listbox.selection_clear(0, "end")
 
     def focus_out(self, event):
@@ -212,6 +256,7 @@ class TriviaApp:
                         fieldbackground=PAPER, foreground=INK, borderwidth=0)
         style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"),
                         background="#e4e7da", foreground=INK, padding=8)
+        self.star_icon = make_star_icon(root)
         self.events = queue.Queue()
         self.busy = False
         self.closed = False
@@ -225,6 +270,7 @@ class TriviaApp:
         self.status = tk.StringVar(value="Loading your roster data…")
         self.team_ids = {"All teams": None}
         self.player_names = NameIndex([])
+        self.college_names = NameIndex([])
         self.canvas = tk.Canvas(root, background=BG, highlightthickness=0)
         page_scroll = ttk.Scrollbar(root, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=page_scroll.set)
@@ -264,7 +310,21 @@ class TriviaApp:
 
     def set_mode(self, name):
         self.mode.set(name)
-        self.menu()
+        self.update_mode_controls()
+
+    def update_mode_controls(self):
+        for name, button in self.mode_buttons.items():
+            button.set_primary(self.mode.get() == name)
+        mode = MODE_NAMES[self.mode.get()]
+        for goal, button in self.goal_buttons.items():
+            button.set_primary(self.goal.get() == goal)
+            button.configure(state="normal" if mode == "player-teams" else "disabled")
+        self.mode_help.set({
+            "one-player": "250+ minutes • Name every eligible player • All five hints in one click",
+            "player-teams": "Choose one or all teams • 250 season minutes and 15 MPG required",
+            "college": "25+ career MPG and 2,000+ career minutes required • College autocomplete",
+            "all-stars": "East/West games: 1976–2017 except 1999, plus 2024 • Team filter is ignored",
+        }[mode])
 
     def menu(self):
         self.clear()
@@ -273,10 +333,13 @@ class TriviaApp:
         ttk.Label(self.frame, text="Pick your era. Call your shot. Every bench counts.", style="Muted.TLabel").pack(anchor="w", pady=(6, 16))
         modes = ttk.Frame(self.frame)
         modes.pack(fill="x")
-        descriptions = ["COMPLETE THE ROSTER\nName every player with 250+ team minutes", "FIND THE TEAMS\nPick a player's teams from that season"]
+        descriptions = ["COMPLETE THE ROSTER\nName every player with 250+ team minutes", "FIND THE TEAMS\nPick a player's teams from that season", "GUESS THE COLLEGE\nName a school your player attended", "EAST / WEST ALL-STARS\nComplete both conference rosters"]
+        self.mode_buttons = {}
         for col, (name, description) in enumerate(zip(MODE_NAMES, descriptions)):
-            modes.columnconfigure(col, weight=1, uniform="mode")
-            self.button(modes, description, lambda n=name: self.set_mode(n), self.mode.get() == name).grid(row=0, column=col, sticky="ew", padx=(0, 10) if col == 0 else (0, 0))
+            modes.columnconfigure(col % 2, weight=1, uniform="mode")
+            button = self.button(modes, description, lambda n=name: self.set_mode(n), self.mode.get() == name, wraplength=290)
+            button.grid(row=col // 2, column=col % 2, sticky="ew", padx=(0, 10) if col % 2 == 0 else (0, 0), pady=4)
+            self.mode_buttons[name] = button
         settings = ttk.Frame(self.frame)
         settings.pack(fill="x", pady=(18, 10))
         for col, (title, variable) in enumerate((("FIRST SEASON ENDING YEAR", self.start), ("LAST SEASON ENDING YEAR", self.end))):
@@ -304,14 +367,17 @@ class TriviaApp:
         self.team_search.trace_add("write", self.update_team_list)
         self.update_team_list()
         ttk.Label(self.frame, textvariable=self.team, style="Muted.TLabel").pack(anchor="w", pady=5)
-        if MODE_NAMES[self.mode.get()] == "player-teams":
-            goal = ttk.Frame(self.frame)
-            goal.pack(fill="x", pady=6)
-            ttk.Label(goal, text="FIND").pack(side="left", padx=(0, 12))
-            for title in ("One team", "All teams"):
-                self.button(goal, title, lambda v=title: self.set_goal(v), self.goal.get() == title).pack(side="left", padx=5)
-        else:
-            ttk.Label(self.frame, text="250+ minutes • All eligible players • Randomized hints • Unlimited guesses", style="Muted.TLabel").pack(anchor="w", pady=8)
+        goal = ttk.Frame(self.frame)
+        goal.pack(fill="x", pady=6)
+        ttk.Label(goal, text="FIND THE TEAMS GOAL").pack(side="left", padx=(0, 12))
+        self.goal_buttons = {}
+        for title in ("One team", "All teams"):
+            button = self.button(goal, title, lambda v=title: self.set_goal(v), self.goal.get() == title)
+            button.pack(side="left", padx=5)
+            self.goal_buttons[title] = button
+        self.mode_help = tk.StringVar()
+        ttk.Label(self.frame, textvariable=self.mode_help, style="Muted.TLabel").pack(anchor="w", pady=8)
+        self.update_mode_controls()
         self.submit = self.button(self.frame, "STEP ONTO THE COURT  ↗", lambda: self.load(True), True)
         self.submit.pack(fill="x", pady=(12, 8))
         files = ttk.Frame(self.frame)
@@ -326,7 +392,7 @@ class TriviaApp:
 
     def set_goal(self, value):
         self.goal.set(value)
-        self.menu()
+        self.update_mode_controls()
 
     def update_team_list(self, *args):
         from .modes import normalized
@@ -376,8 +442,16 @@ class TriviaApp:
                 if not path.exists():
                     raise ValueError("Roster CSV is not ready. Let the scraper finish, then choose its output CSV.")
                 rows = read_csv(path)
-                session = make_session(select_range(rows, start, end), mode, team,
-                                       "one" if goal == "One team" else "all") if play else None
+                session = None
+                if play:
+                    if mode == "all-stars":
+                        if not allstars_path().exists():
+                            raise ValueError("All-Star roster data is missing. Run collect_allstars.py and rebuild the app.")
+                        session = make_allstar_session(read_allstars(allstars_path()), start, end)
+                    else:
+                        session = make_session(select_range(rows, start, end), mode, team,
+                                               "one" if goal == "One team" else "all",
+                                               career_rows=rows, exclude_boundary_careers=True)
                 self.events.put(("ready", (rows, session)))
             except Exception as error:
                 self.events.put(("error", str(error)))
@@ -394,7 +468,11 @@ class TriviaApp:
                     self.status.set(payload)
                 else:
                     rows, session = payload
-                    self.player_names = NameIndex(r.player_name for r in rows)
+                    names_for_completion = [r.player_name for r in rows]
+                    if session and session.mode == "all-stars":
+                        names_for_completion.extend(r.player_name for r in session.answers)
+                    self.player_names = NameIndex(names_for_completion)
+                    self.college_names = NameIndex(name for r in rows for name in college_names(r.college))
                     names = {}
                     for row in rows:
                         if row.league == "NBA" and row.season_end >= MIN_YEAR:
@@ -427,25 +505,54 @@ class TriviaApp:
             games, minutes = stats['games'], stats['minutes_total']
             text = " · ".join(f"{field.upper()} {self.display(stats[field])}" for field in ("ppg", "rpg", "apg", "spg", "bpg"))
             ttk.Label(self.frame, text=f"{games} games · {minutes:g} minutes · {minutes/games:.1f} MPG\nApproximate season averages: {text}", style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
-        columns = ("name", "games") if s.mode == "player-teams" else ("name", "position", "games", "traded") + s.hint_fields
-        table_frame = ttk.Frame(self.frame)
-        table_frame.pack(fill="both", expand=s.mode == "one-player", pady=5)
-        self.table = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="none",
-                                 height=min(8 if s.mode == "one-player" else 3, len(s.answers)))
-        self.table.tag_configure("revealed", foreground=RED)
-        titles = {"name": "TEAM" if s.mode == "player-teams" else "PLAYER", "position": "POS", "games": "GAMES", "traded": "TRADED*", "height_inches": "HEIGHT", "jersey_number": "JERSEY", "ppg": "PPG", "age": "AGE", "is_all_star": "ALL-STAR", "college": "COLLEGE"}
-        for column in columns:
-            self.table.heading(column, text=titles[column])
-            self.table.column(column, width=230 if column in ("name", "college") else 85, minwidth=65, stretch=column in ("name", "college"))
-        horizontal = ttk.Scrollbar(table_frame, orient="horizontal", command=self.table.xview)
-        self.table.configure(xscrollcommand=horizontal.set)
-        horizontal.pack(side="bottom", fill="x")
-        scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
-        self.table.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
-        self.table.pack(side="left", fill="both", expand=True)
-        self.progress = ttk.Label(self.frame, style="Eyebrow.TLabel")
-        self.progress.pack(anchor="w", pady=8)
+        if s.mode == "college":
+            ttk.Label(self.frame, text=f"Played for {s.anchor.team_name} in {s.anchor.season}. Career: {s.career_mpg:.1f} MPG · {s.career_minutes:,.0f} total minutes. Any listed college is accepted.", style="Muted.TLabel").pack(anchor="w", pady=8)
+        self.allstar_tables = {}
+        if s.mode == "all-stars":
+            ttk.Label(self.frame, text="Includes injury withdrawals and replacements listed by the source. Unlimited guesses. Both tables must be completed.", style="Muted.TLabel").pack(anchor="w", pady=6)
+            panels = ttk.Frame(self.frame)
+            panels.pack(fill="both", expand=True)
+            self.table = None
+            for col, conference in enumerate(("East", "West")):
+                panels.columnconfigure(col, weight=1, uniform="conferences")
+                panels.rowconfigure(0, weight=1)
+                panel = ttk.Frame(panels)
+                panel.grid(row=0, column=col, sticky="nsew", padx=(0, 12) if col == 0 else 0)
+                ttk.Label(panel, text=conference.upper() + " ALL-STARS", font=("Georgia", 20)).pack(anchor="w", pady=8)
+                table = ttk.Treeview(panel, columns=("name",), show="headings", selectmode="none", height=12)
+                table.heading("name", text="PLAYER")
+                table.column("name", width=400, minwidth=200)
+                table.tag_configure("revealed", foreground=RED)
+                scroll = ttk.Scrollbar(panel, orient="vertical", command=table.yview)
+                table.configure(yscrollcommand=scroll.set)
+                scroll.pack(side="right", fill="y")
+                table.pack(side="left", fill="both", expand=True)
+                self.allstar_tables[conference] = table
+            self.progress = ttk.Label(self.frame, style="Eyebrow.TLabel")
+            self.progress.pack(anchor="w", pady=8)
+        else:
+            columns = ("college",) if s.mode == "college" else (("name", "games") if s.mode == "player-teams" else ("name", "position", "games", "traded") + s.hint_fields)
+            table_frame = ttk.Frame(self.frame)
+            table_frame.pack(fill="both", expand=s.mode == "one-player", pady=5)
+            self.table = ttk.Treeview(table_frame, columns=columns, show="tree headings" if s.mode == "one-player" else "headings", selectmode="none",
+                                     height=min(8 if s.mode == "one-player" else 3, len(s.answers)))
+            self.table.column("#0", width=34, minwidth=34, stretch=False)
+            self.table.heading("#0", text="")
+            self.table.tag_configure("revealed", foreground=RED)
+            self.table.tag_configure("all_star", background="#fff0bf")
+            titles = {"name": "TEAM" if s.mode == "player-teams" else "PLAYER", "position": "POS", "games": "GAMES", "traded": "TRADED*", "height_inches": "HEIGHT", "jersey_number": "JERSEY", "ppg": "PPG", "age": "AGE", "is_all_star": "ALL-STAR", "college": "COLLEGE"}
+            for column in columns:
+                self.table.heading(column, text=titles[column])
+                self.table.column(column, width=230 if column in ("name", "college") else 85, minwidth=65, stretch=column in ("name", "college"))
+            horizontal = ttk.Scrollbar(table_frame, orient="horizontal", command=self.table.xview)
+            self.table.configure(xscrollcommand=horizontal.set)
+            horizontal.pack(side="bottom", fill="x")
+            scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
+            self.table.configure(yscrollcommand=scroll.set)
+            scroll.pack(side="right", fill="y")
+            self.table.pack(side="left", fill="both", expand=True)
+            self.progress = ttk.Label(self.frame, style="Eyebrow.TLabel")
+            self.progress.pack(anchor="w", pady=8)
         self.entry = self.guess_button = self.hint_button = None
         self.autocomplete = None
         self.team_buttons = {}
@@ -460,11 +567,14 @@ class TriviaApp:
                 button.grid(row=i // 5, column=i % 5, sticky="nsew", padx=3, pady=3)
                 self.team_buttons[tid] = button
         else:
-            ttk.Label(self.frame, text="*Traded: another team record in the CSV that season. Rows ordered by PPG.", style="Muted.TLabel").pack(anchor="w", pady=4)
+            instructions = ("College name — type to see suggestions, select one, then submit." if s.mode == "college" else
+                            "Player name — type to see suggestions; a correct guess fills the matching conference." if s.mode == "all-stars" else
+                            "*Traded: another team record in the CSV that season. Rows ordered by PPG.")
+            ttk.Label(self.frame, text=instructions, style="Muted.TLabel").pack(anchor="w", pady=4)
             self.guess_text = tk.StringVar()
             row = ttk.Frame(self.frame)
             row.pack(fill="x", pady=8)
-            self.autocomplete = AutocompleteEntry(row, self.guess_text, self.player_names)
+            self.autocomplete = AutocompleteEntry(row, self.guess_text, self.college_names if s.mode == "college" else self.player_names)
             self.autocomplete.pack(side="left", fill="x", expand=True, padx=(0, 10), anchor="n")
             self.entry = self.autocomplete.entry
             self.guess_button = self.button(row, "Submit guess", self.submit_guess, True)
@@ -476,21 +586,39 @@ class TriviaApp:
         actions = ttk.Frame(self.frame)
         actions.pack(fill="x", pady=5)
         if s.mode == "one-player":
-            self.hint_button = self.button(actions, f"Reveal hint · {len(s.hints)} left", self.reveal_hint)
+            self.hint_button = self.button(actions, "Reveal all hints", self.reveal_hint)
             self.hint_button.pack(side="left", padx=(0, 10))
         self.quit_button = self.button(actions, "Quit & reveal answers", self.quit_game)
         self.quit_button.pack(side="left")
         self.return_button = self.button(actions, "Return to menu", self.menu, True)
+        if s.mode == "one-player":
+            ttk.Label(self.frame, image=self.star_icon, compound="left",
+                      text="  Gold star + light-gold row = All-Star in this season.",
+                      style="Muted.TLabel").pack(anchor="w", pady=(10, 0))
         self.refresh_table()
 
     def refresh_table(self, reveal=False):
         s = self.session
         self.progress.config(text=f"FOUND {len(s.found)} / {len(s.answers)}" + (f"  ·  INCORRECT {s.wrong}/5" if s.mode == "player-teams" else ""))
+        if s.mode == "all-stars":
+            counts = []
+            for conference, table in self.allstar_tables.items():
+                table.delete(*table.get_children())
+                roster = [row for row in s.answers if row.team_id == conference]
+                for row in roster:
+                    found = row.player_id in s.found
+                    table.insert("", "end", values=(row.player_name if reveal or found else "________________",),
+                                 tags=("revealed",) if reveal and not found else ())
+                counts.append(f"{conference.upper()} {sum(r.player_id in s.found for r in roster)}/{len(roster)}")
+            self.progress.config(text="  ·  ".join(counts))
+            return
         self.table.delete(*self.table.get_children())
         for row in s.answers:
             visible = reveal or s.identity(row) in s.found
             name = s.label(row) if visible else "________________"
-            if s.mode == "player-teams":
+            if s.mode == "college":
+                values = (s.label(row) if visible else "________________",)
+            elif s.mode == "player-teams":
                 values = (name, self.display(row.games))
             else:
                 extras = []
@@ -503,8 +631,14 @@ class TriviaApp:
                     extras.append(self.display(value) if visible or field in s.revealed_hints else "Hidden")
                 traded = len(s.traded.get((row.player_id, row.season_end), set())) > 1
                 values = (name, self.display(row.position), self.display(row.games), "Yes" if traded else "No", *extras)
-            self.table.insert("", "end", values=values,
-                              tags=("revealed",) if reveal and s.identity(row) not in s.found else ())
+            is_star = s.mode == "one-player" and row.is_all_star == 1
+            tags = []
+            if reveal and s.identity(row) not in s.found:
+                tags.append("revealed")
+            if is_star:
+                tags.append("all_star")
+            self.table.insert("", "end", values=values, tags=tuple(tags),
+                              image=self.star_icon if is_star else "")
 
     def submit_guess(self, team_id=None):
         if self.session.outcome:
@@ -528,7 +662,7 @@ class TriviaApp:
         self.session.hint()
         self.refresh_table()
         left = len(self.session.hints)
-        self.hint_button.config(text=f"Reveal hint · {left} left", state="normal" if left else "disabled")
+        self.hint_button.config(text="Reveal all hints" if left else "Hints revealed", state="normal" if left else "disabled")
 
     def quit_game(self):
         self.session.quit()
@@ -557,9 +691,9 @@ class TriviaApp:
 
 
 def main():
-    root = tk.Tk()
-    TriviaApp(root)
-    root.mainloop()
+    # Keep the old module entry point working; all desktop launches use Qt.
+    from .qt_gui import main as launch
+    launch()
 
 
 if __name__ == "__main__":

@@ -43,9 +43,9 @@ class EnrichmentTests(unittest.TestCase):
     def test_optional_hints_and_false_is_known(self):
         row = parse_team(self.html(awards=''),2024,'BOS','Boston')[0]
         session=make_session([row],'one-player')
-        self.assertEqual(set(session.hints),{'height_inches','jersey_number','ppg','age','is_all_star','college'})
+        self.assertEqual(set(session.hints),{'height_inches','jersey_number','ppg','age','college'})
         old=replace(row,age=None,is_all_star=None,college='')
-        self.assertEqual(len(make_session([old],'one-player').hints),3)
+        self.assertEqual(len(make_session([old],'one-player').hints),5)
 
     def test_collection_reconciles_traded_all_star_without_touching_input(self):
         parent=self

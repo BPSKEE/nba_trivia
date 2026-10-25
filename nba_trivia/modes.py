@@ -3,8 +3,10 @@ import random
 import unicodedata
 
 MODE_NAMES = {"Complete the roster": "one-player",
-              "Name a player's teams": "player-teams"}
-HINTS = ("height_inches", "jersey_number", "ppg")
+              "Name a player's teams": "player-teams",
+              "Guess the college": "college",
+              "East / West All-Stars": "all-stars"}
+HINTS = ("jersey_number", "height_inches", "ppg", "college", "age")
 
 
 def normalized(text):
@@ -17,7 +19,35 @@ def normalized(text):
     })).strip()
 
 
-def make_session(rows, mode, team=None, goal="all", rng=None):
+def college_names(text):
+    """Roster college lists use commas to separate multiple schools."""
+    return tuple(name.strip() for name in text.split(",") if name.strip())
+
+
+def career_mpg_index(rows, exclude_boundary=False):
+    """Game-weighted regular-season MPG over all loaded seasons, not the menu range."""
+    rows = [row for row in rows if row.league == "NBA"]
+    first_year = min((row.season_end for row in rows), default=None)
+    players = {}
+    for row in rows:
+        players.setdefault(row.player_id, []).append(row)
+    averages = {}
+    for pid, history in players.items():
+        # Without earlier history, do not mistake a truncated career for a full one.
+        if exclude_boundary and any(row.season_end == first_year for row in history):
+            continue
+        if any(row.games is None or row.games < 0 or
+               (row.games > 0 and (row.minutes_total is None or row.minutes_total < 0))
+               for row in history):
+            continue
+        played = [row for row in history if row.games > 0]
+        games = sum(row.games for row in played)
+        if games:
+            averages[pid] = sum(row.minutes_total for row in played) / games
+    return averages
+
+
+def make_session(rows, mode, team=None, goal="all", rng=None, *, career_rows=None, exclude_boundary_careers=False):
     rng = rng or random.Random()
     groups = {}
     for row in rows:
@@ -35,6 +65,23 @@ def make_session(rows, mode, team=None, goal="all", rng=None):
         if not candidates:
             raise ValueError("No roster players with at least 250 team minutes in this selection.")
         answers = candidates[rng.choice(sorted(candidates))]
+    elif mode == "college":
+        history = rows if career_rows is None else career_rows
+        career_mpg = career_mpg_index(history, exclude_boundary_careers)
+        career_minutes = {}
+        for stint in history:
+            if stint.league == "NBA" and stint.games is not None and stint.games > 0 and stint.minutes_total is not None:
+                career_minutes[stint.player_id] = career_minutes.get(stint.player_id, 0) + stint.minutes_total
+        players = {}
+        for row in rows:
+            if (career_mpg.get(row.player_id, -1) >= 25
+                    and career_minutes.get(row.player_id, 0) >= 2000
+                    and row.games is not None and row.games > 0 and college_names(row.college)
+                    and (team is None or row.team_id == team)):
+                players.setdefault(row.player_id, []).append(row)
+        if not players:
+            raise ValueError("No players with a listed college and at least 25 career MPG and 2,000 career minutes in this selection. Unknown or boundary-truncated careers are excluded.")
+        answers = [rng.choice(players[rng.choice(sorted(players))])]
     elif mode == "player-teams":
         players = {}
         for row in rows:
@@ -57,7 +104,11 @@ def make_session(rows, mode, team=None, goal="all", rng=None):
         answers = rng.choice(candidates)
     else:
         raise ValueError("Unknown game mode")
-    return Session(rows, answers, mode, goal, rng)
+    session = Session(rows, answers, mode, goal, rng)
+    if mode == "college":
+        session.career_mpg = career_mpg[session.anchor.player_id]
+        session.career_minutes = career_minutes[session.anchor.player_id]
+    return session
 
 
 class Session:
@@ -67,12 +118,7 @@ class Session:
         self.wrong = 0
         self.outcome = None
         self.hints = list(HINTS)
-        # Older CSVs remain playable without presenting wholly unavailable hints.
-        for field in ("age", "is_all_star", "college"):
-            if any(getattr(row, field) not in (None, "") for row in answers):
-                self.hints.append(field)
-        self.hint_fields = tuple(self.hints)
-        rng.shuffle(self.hints)
+        self.hint_fields = HINTS
         self.revealed_hints = []
         self.traded = {}
         for r in rows:
@@ -86,11 +132,21 @@ class Session:
     @property
     def prompt(self):
         a = self.anchor
+        if self.mode == "all-stars":
+            return f"Name every player on the East and West All-Star teams in {a.season_end}."
+        if self.mode == "college":
+            return f"Which college did {a.player_name} attend? Name any one of their listed colleges."
         if self.mode == "player-teams":
             return f"Name {'one team' if self.goal == 'one' else 'all teams'} {a.player_name} played for in {a.season} ({a.season_end})."
         if self.mode == "one-player":
             return f"Name every player on {a.team_name} in {a.season} ({a.season_end}) who played at least 250 minutes for that team. Rows are ordered by PPG."
         raise ValueError("Unknown game mode")
+
+    @property
+    def colleges(self):
+        names = {name for row in self.rows if row.player_id == self.anchor.player_id
+                 for name in college_names(row.college)}
+        return sorted(names, key=normalized)
 
     @property
     def team_options(self):
@@ -103,6 +159,8 @@ class Session:
         return row.team_id if self.mode == "player-teams" else row.player_id
 
     def label(self, row):
+        if self.mode == "college":
+            return ", ".join(self.colleges)
         return row.team_name if self.mode == "player-teams" else row.player_name
 
     def guess(self, text):
@@ -111,6 +169,12 @@ class Session:
         value = normalized(text)
         if not value:
             return "Enter a name before submitting."
+        if self.mode == "college":
+            if value in {normalized(name) for name in self.colleges}:
+                self.found.add(self.anchor.player_id)
+                self.outcome = "victory"
+                return "Correct!"
+            return f"{text.strip()} is not a listed college for {self.anchor.player_name}. Try again."
         matches = [r for r in self.answers if value in (
             {normalized(r.team_name), normalized(r.team_id)} if self.mode == "player-teams"
             else {normalized(r.player_name)})]
@@ -128,6 +192,8 @@ class Session:
             if self.wrong >= 5:
                 self.outcome = "failure"
             return f"{self.anchor.player_name} did not play for {text.strip()} in {self.anchor.season_end}. Incorrect guesses: {self.wrong}/5."
+        if self.mode == "all-stars":
+            return f"{text.strip()} was not on either All-Star roster in {self.anchor.season_end}."
         # Distinguish a real roster member who does not meet this mode's eligibility.
         roster_member = any(normalized(r.player_name) == value and r.team_id == self.anchor.team_id
                             and r.season_end == self.anchor.season_end for r in self.rows)
@@ -139,9 +205,10 @@ class Session:
     def hint(self):
         if self.outcome or self.mode != "one-player" or not self.hints:
             return None
-        field = self.hints.pop()
-        self.revealed_hints.append(field)
-        return field
+        fields = tuple(self.hints)
+        self.revealed_hints.extend(fields)
+        self.hints.clear()
+        return fields
 
     def quit(self):
         if not self.outcome:
