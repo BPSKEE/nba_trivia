@@ -1,5 +1,39 @@
 # NBA trivia framework
 
+## Play in a browser or on iPhone
+
+[**Open NBA Trivia**](https://bpskee.github.io/nba_trivia/)
+
+This is the GitHub Pages address for this repository. **The link becomes live after you push `docs/` and enable Pages using the steps below.** The website runs independently of ChatGPT, with the roster and All-Star data included. Visitors need only the link.
+
+### Enable the website once
+
+1. Push this project, including the **`docs/` folder**, to your `BPSKEE/nba_trivia` GitHub repository. The generated website is already in that folder; GitHub does not need to run Python or build the app.
+2. On GitHub, open the repository → **Settings → Pages**.
+3. Under **Build and deployment**, select **Deploy from a branch**.
+4. Select **main**, select **/docs**, and click **Save**. If your default branch has another name, select that branch instead.
+5. Wait for GitHub to finish publishing, then click the address shown on the Pages settings screen. Share that address with anyone.
+
+If the repository name or owner changes, use the address GitHub shows and update the link above. See [GitHub's Pages setup instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
+### Update or preview the website
+
+After changing website code or the enriched data, run:
+
+```sh
+make website
+```
+
+Then commit and push the updated `docs/` folder. Pages republishes automatically. The build reads `data/rosters_enriched.csv` and `data/allstars.csv`; it does not replace either CSV or rebuild the Mac app. It also creates `dist/NBA Trivia Website.zip`, containing a `docs/` folder you can upload through GitHub's website if you prefer.
+
+For a preview on your own computer:
+
+```sh
+make website-serve
+```
+
+Then [open the local preview](http://localhost:8080). Keep that terminal running while playing locally. `localhost` means the device opening the link; it is not a public hosting address. Use the GitHub Pages link to play on iPhone or share with others without leaving your computer running.
+
 Python 3.10+; install with `python3 -m pip install -e .`. The runtime uses certifi for trusted HTTPS certificate roots in addition to the platform defaults. Run commands from this directory. Includes terminal and native desktop interfaces.
 
 ## Build and send the desktop app (macOS)
@@ -125,31 +159,13 @@ Source launches use the project's `data/rosters.csv`. A packaged app without bun
 
 ## iPhone / Safari version (separate from desktop)
 
-Hosted game: [Courtside · NBA Trivia](https://nba-trivia-courtside-skeens.milkybison514.chatgpt.site) (initially owner-private).
+Use the **Open NBA Trivia** link at the top after enabling GitHub Pages. All four modes are included: complete the roster, name the player's teams, guess the college, and East/West All-Star rosters. Player and college autocomplete, hints, and red revealed answers are included.
 
-`mobile/` contains a separate responsive web app with the same three typed-answer game modes. Desktop app builds and terminal scraping remain independent.
+On iPhone, open the link in Safari. You can use **Share → Add to Home Screen** to add an icon. The site caches its files and included data after a successful online load; Safari may remove cached files. Physical iPhone installation and offline behavior still require device testing.
 
-Open the hosted mobile Site in Safari, then use **Share → Add to Home Screen**. After loading online, the app shell is cached for offline use. Imported CSV data stays in that browser's local storage; Safari may remove cached data, so keep a copy of the roster file. Physical iPhone installation and offline behavior require device testing.
+The deployable website is entirely in `docs/`, including its data. There is no ChatGPT hosting, account requirement, backend server, or separate CSV for visitors. Source files are in `mobile/dist/`. Run `make website` to refresh `docs/` after source changes.
 
-Until the scraper finishes, the mobile page offers an explicitly fictional sample game and a CSV picker. Load the completed normalized roster CSV from the iPhone Files app to play with real NBA records; the selected CSV is parsed locally and never uploaded.
-
-To include the completed roster directly in the mobile website:
-
-```sh
-make mobile-data
-```
-
-This writes only `mobile/dist/rosters.json`; it does not change the source CSV, running scraper, or desktop app. Republish the mobile Site afterward to make updated data available at its hosted URL. The site is initially private to its owner; sharing with others requires changing its audience in Sites.
-
-For a local computer preview:
-
-```sh
-make mobile-serve
-```
-
-Open `http://localhost:8080` on that computer. This localhost address is not a remotely accessible iPhone link. Home Screen/offline functionality on a phone requires an HTTPS deployment. You can host the static contents of `mobile/dist/` on another HTTPS static host if desired.
-
-Mobile logic tests: `node --test mobile/tests/engine.test.mjs`.
+Web logic tests: `node --test mobile/tests/engine.test.mjs`.
 
 ### Input and revealed answers
 
@@ -157,13 +173,13 @@ Mac controls use large themed buttons, inline year fields, and an always-visible
 
 Guesses ignore case and diacritics: `Jokic` matches `Jokić`, `Asik` matches `Aşık`, and `Porzingis` matches `Porziņģis`. Special Latin letters are normalized, including `ø → o`, `ł → l`, `æ → ae`, and `ß → ss`. Original spellings remain on screen.
 
-Quit/reveal and failure show unguessed answer rows in red; previously guessed answers retain their normal color. The latest Mac redesign and eligibility rules have not been applied to the separate mobile version.
+Quit/reveal and failure show unguessed answer rows in red; previously guessed answers retain their normal color.
 
 ### Mac player-name autocomplete
 
 In **Complete the roster**, start typing a first or last name to open a scrollable suggestion list. Suggestions ignore case and accents and search all player names in the loaded CSV, rather than revealing only the selected roster's answers. Click a suggestion to fill in its correctly spelled name, then click **Submit guess** (or press Return in the text box). Selecting a suggestion does not submit a guess.
 
-Keyboard: Down opens/focuses suggestions; arrow keys navigate; Return selects a highlighted suggestion; Escape dismisses the list. Team-button mode is unchanged. The separate iPhone version has not received this Mac-only feature.
+Keyboard: Down opens/focuses suggestions; arrow keys navigate; Return selects a highlighted suggestion; Escape dismisses the list. Team-button mode is unchanged. The website also supports player and college autocomplete.
 
 ### Roster metadata and All-Star markers
 

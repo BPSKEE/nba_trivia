@@ -10,3 +10,10 @@ mobile-data:
 
 mobile-serve:
 	.venv/bin/python -m http.server 8080 --directory mobile/dist
+
+.PHONY: website website-serve
+website:
+	.venv/bin/python build_mobile.py
+
+website-serve:
+	.venv/bin/python -m http.server 8080 --directory docs
