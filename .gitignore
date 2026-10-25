@@ -1,0 +1,16 @@
+__pycache__/
+*.egg-info/
+.venv/
+build/
+dist/
+data/cache/
+data/*.csv
+
+# Preserve the former nested repository locally; never publish its metadata.
+.mobile-git-backup/
+mobile/.openai/
+.DS_Store
+
+# Website source assets belong in the repository.
+!mobile/dist/
+!mobile/dist/**
