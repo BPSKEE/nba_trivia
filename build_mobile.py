@@ -38,7 +38,6 @@ def main():
     digest=hashlib.sha256(b''.join((output/name).read_bytes() for name in (*ASSETS,'rosters.json','allstars.json'))).hexdigest()[:12]
     (output/'sw.js').write_text((source/'sw.js').read_text().replace('courtside-standalone-v4','courtside-standalone-'+digest),encoding='utf-8')
     (output/'.nojekyll').write_text('')
-    (output/'CNAME').write_text('courtside.io\n',encoding='utf-8')
     archive=ROOT/'dist/NBA Trivia Website.zip';archive.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
         for path in sorted(output.iterdir()):

@@ -16,26 +16,6 @@ This is the GitHub Pages address for this repository. **The link becomes live af
 
 If the repository name or owner changes, use the address GitHub shows and update the link above. See [GitHub's Pages setup instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
-### Custom domain: courtside.io
-
-The repository includes `docs/CNAME` with `courtside.io`, and `make website` preserves this setting. Push that file, then keep **Settings → Pages → Custom domain** set to `courtside.io`.
-
-At Namecheap, open **Domain List → Manage → Advanced DNS → Host Records**. Configure:
-
-| Type | Host | Value |
-| --- | --- | --- |
-| A Record | @ | 185.199.108.153 |
-| A Record | @ | 185.199.109.153 |
-| A Record | @ | 185.199.110.153 |
-| A Record | @ | 185.199.111.153 |
-| CNAME Record | www | bpskee.github.io |
-
-Use Automatic TTL. Replace the existing `www` parking CNAME and any root (`@`) parking/URL redirect or conflicting A/AAAA records. Keep email (MX/TXT) records. The CNAME target has no `https://` and no repository path.
-
-DNS may take up to 24 hours to propagate. Once GitHub's DNS check succeeds and the certificate is ready, enable **Enforce HTTPS**. The final game address is https://courtside.io/. Adding the repository file does not change DNS at Namecheap; you must save those records there.
-
-[GitHub custom-domain instructions](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site).
-
 ### Update or preview the website
 
 After changing website code or the enriched data, run:
