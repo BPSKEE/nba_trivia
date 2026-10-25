@@ -243,3 +243,7 @@ East/West All-Star tables now show **Player / NBA team(s) / Age / College**. Met
 Install the updated runtime/build dependencies before building: `.venv/bin/python -m pip install -e '.[build]'`, then `make`. Qt is bundled in the app; recipients do not install it. The current Qt wheel requires macOS 14 or newer; this build targets Apple Silicon.
 
 UI tests exercise actual Qt widgets using Qt Test's offscreen mouse/keyboard events: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -v`. This verifies event handling and layout without controlling the user's desktop; it does not replace physical-device testing.
+
+### Next board
+
+On the website, **Next board →** starts a fresh random board in any mode using the same home-menu settings. It is available during play and after a win, failure, or reveal. Guesses and hints reset without revealing the previous board. A random board may repeat, especially with a narrow year/team selection.

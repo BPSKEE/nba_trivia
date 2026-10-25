@@ -1,4 +1,4 @@
-const CACHE='courtside-standalone-7f0c0e6f9217';
+const CACHE='courtside-standalone-c641051b5e51';
 const ASSETS=['./','./index.html','./style.css','./app.mjs','./engine.mjs','./manifest.webmanifest','./icon.svg','./apple-touch-icon.png','./rosters.json','./allstars.json'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>(key.startsWith('courtside-shell-')||key.startsWith('courtside-standalone-'))&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));

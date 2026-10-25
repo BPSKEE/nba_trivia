@@ -1,5 +1,6 @@
 import {createSession,suggestions,colleges,HINTS} from './engine.mjs';
 const $=id=>document.getElementById(id);
+let boardSettings=null;
 let rows=[],stars=[],session=null,namePool=[],collegePool=[],activeSuggestion=-1,suggestionNames=[];
 const modeNames={'one-player':'Complete the roster','player-teams':'Find the teams',college:'Guess the college','all-stars':'East / West All-Stars'};
 const help={'one-player':'Name every player with 250+ team minutes. One hint button reveals jersey, height, PPG, college and age.',
@@ -21,11 +22,13 @@ $('guess').oninput=()=>{
 };
 $('guess').onkeydown=event=>{if($('suggestions').hidden)return;if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();activeSuggestion=(activeSuggestion+(event.key==='ArrowDown'?1:-1)+suggestionNames.length)%suggestionNames.length;for(const [i,node] of [...$('suggestions').querySelectorAll('button')].entries())node.setAttribute('aria-selected',String(i===activeSuggestion));const node=$(`suggestion-${activeSuggestion}`);$('guess').setAttribute('aria-activedescendant',node.id);node.scrollIntoView({block:'nearest'});}else if(event.key==='Enter'&&activeSuggestion>=0){event.preventDefault();chooseSuggestion(suggestionNames[activeSuggestion]);}else if(event.key==='Escape'){event.preventDefault();closeSuggestions();}};
 document.addEventListener('click',event=>{if(!event.target.closest('.autocomplete'))closeSuggestions();});
-$('settings').onsubmit=event=>{event.preventDefault();try{session=createSession(rows,$('mode').value,Number($('start').value),Number($('end').value),$('team').value,$('goal').value,Math.random,stars);$('menu').hidden=true;$('game').hidden=false;$('game-mode').textContent=modeNames[session.mode];$('guess').value='';$('feedback').textContent='';$('feedback').className='';closeSuggestions();const a=session.anchor;
+function startBoard(settings){try{const nextSession=createSession(rows,settings.mode,settings.start,settings.end,settings.team,settings.goal,Math.random,stars);session=nextSession;boardSettings={...settings};$('menu').hidden=true;$('game').hidden=false;$('game-mode').textContent=modeNames[session.mode];$('guess').value='';$('feedback').textContent='';$('feedback').className='';closeSuggestions();const a=session.anchor;
  $('prompt').textContent=session.mode==='college'?`Which college did ${a.player_name} attend?`:session.mode==='all-stars'?`Name the East and West All-Stars in ${a.season_end}.`:session.mode==='player-teams'?`Name ${session.goal==='one'?'one team':'all teams'} ${a.player_name} played for in ${a.season}.`:`Complete ${a.team_name}’s ${a.season} roster.`;
  $('stats').textContent=session.mode==='college'?`${a.team_name}, ${a.season}. Career: ${session.career.mpg.toFixed(1)} MPG / ${session.career.minutes.toLocaleString()} minutes. Any listed college wins.`:session.mode==='all-stars'?'Team(s), age and college describe the season. Includes selected injured players and their replacements.':session.mode==='one-player'?'Every player with at least 250 minutes for this team. Rows ordered by PPG. Unlimited guesses.':(()=>{const stats=session.stats();return `${stats.games} games · ${show(stats.minutes)} minutes. Approximate season averages: ${['ppg','rpg','apg','spg','bpg'].map(k=>`${k.toUpperCase()} ${stats[k]}`).join(' · ')}. Five wrong guesses allowed.`;})();
  $('guess-label').textContent=session.mode==='college'?'College name':'Player name';buildTeamButtons();render();window.scrollTo(0,0);
- }catch(error){$('status').textContent=error.message;}};
+ }catch(error){if($('game').hidden)$('status').textContent=error.message;else $('feedback').textContent=error.message;}}
+$('settings').onsubmit=event=>{event.preventDefault();startBoard({mode:$('mode').value,start:Number($('start').value),end:Number($('end').value),team:$('team').value,goal:$('goal').value});};
+$('next').onclick=()=>{if(boardSettings)startBoard(boardSettings);};
 function buildTeamButtons(){$('team-buttons').replaceChildren();if(session.mode!=='player-teams')return;for(const [id,name] of session.teamOptions){const b=el('button',name,'secondary');b.type='button';b.dataset.team=id;b.onclick=()=>{const message=session.guess(id);$('feedback').textContent=message;b.disabled=true;b.classList.add(session.found.has(id)?'correct-team':'wrong-team');render();};$('team-buttons').append(b);}}
 function makeTable(headings,values,className=''){
  const table=el('table',undefined,className),head=el('thead'),header=el('tr');for(const title of headings)header.append(el('th',title));head.append(header);table.append(head);const body=el('tbody');
