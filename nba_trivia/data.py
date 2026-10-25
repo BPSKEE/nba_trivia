@@ -27,6 +27,9 @@ class PlayerSeason:
     spg: float | None = None
     bpg: float | None = None
     source_url: str = ""
+    age: int | None = None
+    is_all_star: int | None = None
+    college: str = ""
 
     @property
     def key(self):
@@ -34,7 +37,9 @@ class PlayerSeason:
 
 
 COLUMNS = [f.name for f in fields(PlayerSeason)]
-INTS = {"season_end", "height_inches", "weight_lbs", "games"}
+OPTIONAL_COLUMNS = {"age", "is_all_star", "college"}
+LEGACY_COLUMNS = [name for name in COLUMNS if name not in OPTIONAL_COLUMNS]
+INTS = {"season_end", "height_inches", "weight_lbs", "games", "age", "is_all_star"}
 FLOATS = {"minutes_total", "ppg", "rpg", "apg", "spg", "bpg"}
 
 
@@ -64,13 +69,19 @@ def write_csv(path, rows):
 def read_csv(path):
     with open(path, newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream)
-        if reader.fieldnames != COLUMNS:
+        if (not reader.fieldnames or len(set(reader.fieldnames)) != len(reader.fieldnames)
+                or not set(LEGACY_COLUMNS) <= set(reader.fieldnames)
+                or not set(reader.fieldnames) <= set(COLUMNS)):
             raise ValueError("Unsupported CSV schema; rebuild the data file")
         rows = []
         seen = set()
         for record in reader:
+            for name in OPTIONAL_COLUMNS:
+                record.setdefault(name, "")
             for name in INTS | FLOATS:
                 record[name] = (int if name in INTS else float)(record[name]) if record[name] else None
+            if record["is_all_star"] not in (None, 0, 1):
+                raise ValueError("is_all_star must be 1, 0, or blank")
             row = PlayerSeason(**record)
             if row.key in seen:
                 raise ValueError(f"Duplicate row: {row.key}")

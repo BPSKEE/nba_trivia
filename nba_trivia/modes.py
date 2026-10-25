@@ -67,6 +67,11 @@ class Session:
         self.wrong = 0
         self.outcome = None
         self.hints = list(HINTS)
+        # Older CSVs remain playable without presenting wholly unavailable hints.
+        for field in ("age", "is_all_star", "college"):
+            if any(getattr(row, field) not in (None, "") for row in answers):
+                self.hints.append(field)
+        self.hint_fields = tuple(self.hints)
         rng.shuffle(self.hints)
         self.revealed_hints = []
         self.traded = {}

@@ -164,3 +164,21 @@ Quit/reveal and failure show unguessed answer rows in red; previously guessed an
 In **Complete the roster**, start typing a first or last name to open a scrollable suggestion list. Suggestions ignore case and accents and search all player names in the loaded CSV, rather than revealing only the selected roster's answers. Click a suggestion to fill in its correctly spelled name, then click **Submit guess** (or press Return in the text box). Selecting a suggestion does not submit a guess.
 
 Keyboard: Down opens/focuses suggestions; arrow keys navigate; Return selects a highlighted suggestion; Escape dismisses the list. Team-button mode is unchanged. The separate iPhone version has not received this Mac-only feature.
+
+### Optional roster metadata: age, All-Star status, college
+
+New scraper output appends `age`, `is_all_star`, and `college`. Old CSVs remain readable: their missing fields default to unknown. The Mac roster source code adds these as randomized hint categories only when the chosen roster has data for them, and displays the fields on correctly guessed or revealed rows. A horizontal table scrollbar accommodates the extra columns. The existing packaged app must be rebuilt separately to include these source changes.
+
+- `age`: the source's season-age value from the regular-season statistics tables. Basketball Reference defines it as age on January 31 of that season; it is not current age.
+- `is_all_star`: `1` when the Awards column contains the exact `AS` marker, `0` when Awards is available without that marker, and blank when unavailable. It means selected for that season's All-Star roster, not necessarily that the player appeared in the game. Selection is reconciled across a traded player's team rows. A season without an All-Star selection is not a positive result.
+- `college`: the roster's listed college text, preserving multiple schools. Blank means no listed college/unknown; it is not automatically interpreted as proof the player never attended college.
+
+Sources: [Basketball Reference glossary](https://www.basketball-reference.com/about/glossary.html), [Sports Reference All-Star help](https://faq.sports-reference.com/portal/en/kb/articles/all-sta), and the team-season roster/statistics pages linked in each row.
+
+To generate a **separate** enriched file later, keeping the current dataset in place:
+
+```sh
+python3 -m nba_trivia scrape --start 1976 --end 2026 --data data/rosters_enriched.csv
+```
+
+Existing cached pages are reused. This command has not been run as part of the metadata update; `data/rosters.csv` has not been replaced, and the app has not been rebuilt. Preview the enriched file using the source app's CSV picker before choosing to bundle it in a future release.

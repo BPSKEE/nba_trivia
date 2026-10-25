@@ -311,7 +311,7 @@ class TriviaApp:
             for title in ("One team", "All teams"):
                 self.button(goal, title, lambda v=title: self.set_goal(v), self.goal.get() == title).pack(side="left", padx=5)
         else:
-            ttk.Label(self.frame, text="250+ minutes • All eligible players • Three randomized hints • Unlimited guesses", style="Muted.TLabel").pack(anchor="w", pady=8)
+            ttk.Label(self.frame, text="250+ minutes • All eligible players • Randomized hints • Unlimited guesses", style="Muted.TLabel").pack(anchor="w", pady=8)
         self.submit = self.button(self.frame, "STEP ONTO THE COURT  ↗", lambda: self.load(True), True)
         self.submit.pack(fill="x", pady=(12, 8))
         files = ttk.Frame(self.frame)
@@ -427,16 +427,19 @@ class TriviaApp:
             games, minutes = stats['games'], stats['minutes_total']
             text = " · ".join(f"{field.upper()} {self.display(stats[field])}" for field in ("ppg", "rpg", "apg", "spg", "bpg"))
             ttk.Label(self.frame, text=f"{games} games · {minutes:g} minutes · {minutes/games:.1f} MPG\nApproximate season averages: {text}", style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
-        columns = ("name", "games") if s.mode == "player-teams" else ("name", "position", "games", "traded", "height_inches", "jersey_number", "ppg")
+        columns = ("name", "games") if s.mode == "player-teams" else ("name", "position", "games", "traded") + s.hint_fields
         table_frame = ttk.Frame(self.frame)
         table_frame.pack(fill="both", expand=s.mode == "one-player", pady=5)
         self.table = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="none",
                                  height=min(8 if s.mode == "one-player" else 3, len(s.answers)))
         self.table.tag_configure("revealed", foreground=RED)
-        titles = {"name": "TEAM" if s.mode == "player-teams" else "PLAYER", "position": "POS", "games": "GAMES", "traded": "TRADED*", "height_inches": "HEIGHT", "jersey_number": "JERSEY", "ppg": "PPG"}
+        titles = {"name": "TEAM" if s.mode == "player-teams" else "PLAYER", "position": "POS", "games": "GAMES", "traded": "TRADED*", "height_inches": "HEIGHT", "jersey_number": "JERSEY", "ppg": "PPG", "age": "AGE", "is_all_star": "ALL-STAR", "college": "COLLEGE"}
         for column in columns:
             self.table.heading(column, text=titles[column])
-            self.table.column(column, width=270 if column == "name" else 95, minwidth=65)
+            self.table.column(column, width=230 if column in ("name", "college") else 85, minwidth=65, stretch=column in ("name", "college"))
+        horizontal = ttk.Scrollbar(table_frame, orient="horizontal", command=self.table.xview)
+        self.table.configure(xscrollcommand=horizontal.set)
+        horizontal.pack(side="bottom", fill="x")
         scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
@@ -473,7 +476,7 @@ class TriviaApp:
         actions = ttk.Frame(self.frame)
         actions.pack(fill="x", pady=5)
         if s.mode == "one-player":
-            self.hint_button = self.button(actions, "Reveal hint · 3 left", self.reveal_hint)
+            self.hint_button = self.button(actions, f"Reveal hint · {len(s.hints)} left", self.reveal_hint)
             self.hint_button.pack(side="left", padx=(0, 10))
         self.quit_button = self.button(actions, "Quit & reveal answers", self.quit_game)
         self.quit_button.pack(side="left")
@@ -491,8 +494,10 @@ class TriviaApp:
                 values = (name, self.display(row.games))
             else:
                 extras = []
-                for field in ("height_inches", "jersey_number", "ppg"):
+                for field in s.hint_fields:
                     value = getattr(row, field)
+                    if field == "is_all_star" and value is not None:
+                        value = "Yes" if value else "No"
                     if field == "height_inches" and value is not None:
                         value = f"{value // 12}′ {value % 12}″"
                     extras.append(self.display(value) if visible or field in s.revealed_hints else "Hidden")

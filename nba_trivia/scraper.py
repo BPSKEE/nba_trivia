@@ -4,6 +4,7 @@ import re
 import os
 import ssl
 import time
+from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -95,12 +96,23 @@ def parse_team(html, year, team, name, league="NBA"):
     if not parsed.get("roster") or not totals_rows:
         raise SourceError(f"Missing roster/totals tables for {team} {year}; source format may have changed")
     totals = {player_id(r): r for r in totals_rows if player_id(r)}
+    details = {}
+    for table_name in ("totals", "totals_stats", "per_game", "per_game_stats"):
+        for record in parsed.get(table_name, []):
+            pid = player_id(record)
+            if pid:
+                details.setdefault(pid, []).append(record)
     result = []
     for roster in parsed["roster"]:
         pid = player_id(roster)
         if not pid:
             continue
         stats = totals.get(pid, {})
+        records = details.get(pid, [])
+        age = next((number(cell(record, "age"), int) for record in records
+                    if cell(record, "age")), None)
+        awards = [cell(record, "awards") for record in records if "awards" in record]
+        is_all_star = int(any("AS" in re.split(r"[\s,]+", value) for value in awards)) if awards else None
         games = number(cell(stats, "g", "games"), int)
         height = cell(roster, "height")
         match = re.fullmatch(r"(\d+)-(\d+)", height)
@@ -113,7 +125,8 @@ def parse_team(html, year, team, name, league="NBA"):
             cell(roster, "player", "name_display"), cell(roster, "pos"),
             cell(roster, "number"), int(match[1]) * 12 + int(match[2]) if match else None,
             number(cell(roster, "weight"), int), games, number(cell(stats, "mp")),
-            source_url=f"{BASE}/teams/{team}/{year}.html", **rates))
+            source_url=f"{BASE}/teams/{team}/{year}.html", age=age,
+            is_all_star=is_all_star, college=cell(roster, "college"), **rates))
     if not result:
         raise SourceError(f"No roster players parsed for {team} {year}")
     return result
@@ -199,5 +212,9 @@ def collect(client, start, end, output, progress=print):
         for team, name in teams:
             progress(f"Collecting {year} {team} ({name})", flush=True)
             rows.extend(parse_team(client.get(f"/teams/{team}/{year}.html"), year, team, name, league))
+    # All-Star selection belongs to the player-season, even across a trade.
+    all_stars = {(r.player_id, r.season_end, r.league) for r in rows if r.is_all_star == 1}
+    rows = [replace(r, is_all_star=1) if (r.player_id, r.season_end, r.league) in all_stars else r
+            for r in rows]
     write_csv(output, rows)
     return rows
